@@ -83,6 +83,8 @@ packages/
 *.jpeg
 *.tif
 
+data/
+
 package-lock.json*
 
 # Project-specific: Don't commit experiment data path

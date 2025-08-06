@@ -3,62 +3,521 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Binary File Plotter</title>
+    <title>Simple Binary Plotter</title>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 300;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .info-bar {
+            background: white;
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .info-bar.show {
+            display: block;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            align-items: center;
+        }
+
+        .info-item {
+            text-align: center;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .controls.show {
+            display: block;
+        }
+
+        .controls h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .channel-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px;
+        }
+
+        .channel-control input {
+            margin: 0;
+        }
+
+        .channel-control label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn.secondary {
+            background: #95a5a6;
+        }
+
+        .btn.secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .plot-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        #plot {
+            width: 100%;
+            height: 600px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+
+        .loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+    </style>
 </head>
 <body>
-    <!-- Header -->
     <div class="header">
-        <h1>Simple Binary File Plotter</h1>
-        <p class="subtitle">Upload and visualize 8-channel binary measurement data</p>
+        <h1>Simple Binary Data Plotter</h1>
     </div>
 
-    <!-- Main Container -->
-    <div class="main-container">
-        
-        <!-- Upload Section -->
-        <div class="upload-section">
-            <div class="upload-area">
-                <div class="upload-icon">📁</div>
-                <h3>Upload Binary File</h3>
-                <p>Drag and drop a .bin file here, or click to browse</p>
-                
-                <input type="file" id="fileInput" accept=".bin" style="display: none;">
-                <button id="uploadBtn" disabled>Choose Binary File</button>
-                
-                <div class="file-types">
-                    <small>Supported: .bin files with 8-channel measurement data</small>
+    <div class="container">
+        <div id="info-bar" class="info-bar">
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">File</div>
+                    <div class="info-value" id="filename">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Duration</div>
+                    <div class="info-value" id="duration">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Channels</div>
+                    <div class="info-value" id="channels">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Total Points</div>
+                    <div class="info-value" id="total-points">-</div>
                 </div>
             </div>
         </div>
 
-        <!-- Loading Indicator -->
-        <div id="loading" class="loading-section" style="display: none;">
-            <div class="loading-spinner"></div>
-            <p>Processing binary file...</p>
-        </div>
-
-        <!-- File Info -->
-        <div id="fileInfo" class="file-info-section"></div>
-
-        <!-- Channel Controls -->
-        <div id="channelControls" class="channel-controls-section" style="display: none;"></div>
-
-        <!-- Plot Section -->
-        <div id="plotContainer" class="plot-section" style="display: none;">
-            <div class="plot-header">
-                <h3>Multi-Channel Data Plot</h3>
-                <p>Zoom and pan to explore your data. Use the channel controls above to show/hide traces.</p>
-            </div>
-            
-            <div class="plot-container">
-                <div id="plot"></div>
+        <div id="controls" class="controls">
+            <h3>Channel Controls</h3>
+            <div id="channel-grid" class="channel-grid"></div>
+            <div class="button-group">
+                <button class="btn" onclick="toggleAllChannels()">Toggle All</button>
+                <button class="btn secondary" onclick="resetZoom()">Reset Zoom</button>
+                <button class="btn secondary" onclick="resetYAxes()">Reset Y-Axes</button>
             </div>
         </div>
 
+        <div class="plot-container">
+            <div id="loading" class="loading">
+                <div class="loading-spinner"></div>
+                <div>Loading binary data...</div>
+            </div>
+            <div id="plot"></div>
+        </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script>
+        class SimplePlotter {
+            constructor() {
+                this.metadata = null;
+                this.ranges = null;
+                this.currentPlot = null;
+                this.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
+                
+                this.init();
+            }
+
+            async init() {
+                try {
+                    // Auto-load the binary file on startup
+                    await this.loadFile();
+                } catch (error) {
+                    this.showError(error.message);
+                }
+            }
+
+            async loadFile() {
+                console.log('Loading binary file...');
+                
+                try {
+                    const response = await fetch('/api/load');
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.error || `HTTP ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    this.metadata = result.metadata;
+                    this.ranges = result.ranges;
+
+                    this.updateInfoBar(result);
+                    this.createChannelControls();
+                    await this.createPlot();
+
+                } catch (error) {
+                    console.error('Load error:', error);
+                    throw error;
+                }
+            }
+
+            updateInfoBar(result) {
+                document.getElementById('filename').textContent = result.filename;
+                document.getElementById('duration').textContent = result.metadata.duration.toFixed(1) + 's';
+                document.getElementById('channels').textContent = result.metadata.channels.length;
+                document.getElementById('total-points').textContent = result.metadata.totalPoints.toLocaleString();
+                
+                document.getElementById('info-bar').classList.add('show');
+            }
+
+            createChannelControls() {
+                const grid = document.getElementById('channel-grid');
+                
+                grid.innerHTML = this.metadata.channels.map((channel, index) => `
+                    <div class="channel-control">
+                        <input type="checkbox" id="channel${index}" checked onchange="plotter.updateVisibility()">
+                        <label for="channel${index}">
+                            <div class="color-dot" style="background: ${this.colors[index]}"></div>
+                            ${channel.label} [${channel.unit}]
+                        </label>
+                    </div>
+                `).join('');
+
+                document.getElementById('controls').classList.add('show');
+            }
+
+            async createPlot() {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('plot').style.display = 'none';
+
+                try {
+                    const traces = await this.buildTraces(0, this.metadata.duration, 2000);
+                    const layout = this.createLayout();
+                    
+                    const config = {
+                        responsive: true,
+                        displayModeBar: true,
+                        scrollZoom: false
+                    };
+
+                    this.currentPlot = await Plotly.newPlot('plot', traces, layout, config);
+                    
+                    // Setup zoom handling
+                    document.getElementById('plot').on('plotly_relayout', (eventData) => {
+                        this.handleZoom(eventData);
+                    });
+
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('plot').style.display = 'block';
+
+                } catch (error) {
+                    console.error('Plot error:', error);
+                    this.showError('Failed to create plot: ' + error.message);
+                }
+            }
+
+            async buildTraces(startTime, endTime, maxPoints) {
+                const traces = [];
+
+                for (let channel = 0; channel < 8; channel++) {
+                    try {
+                        const response = await fetch(
+                            `/api/data/${channel}?start=${startTime}&end=${endTime}&maxPoints=${maxPoints}`
+                        );
+                        
+                        if (!response.ok) continue;
+                        
+                        const data = await response.json();
+                        const channelInfo = this.metadata.channels[channel];
+                        
+                        traces.push({
+                            x: data.time,
+                            y: data.values,
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: `${channelInfo.label} [${channelInfo.unit}]`,
+                            line: { color: this.colors[channel], width: 1.5 },
+                            yaxis: this.getYAxisForUnit(channelInfo.unit),
+                            visible: true
+                        });
+
+                    } catch (error) {
+                        console.warn(`Failed to load channel ${channel}:`, error);
+                    }
+                }
+
+                return traces;
+            }
+
+            createLayout() {
+                return {
+                    title: {
+                        text: 'Multi-Channel Binary Data',
+                        font: { size: 16, color: '#2c3e50' }
+                    },
+                    
+                    xaxis: { 
+                        title: 'Time [s]',
+                        range: [0, this.metadata.duration],
+                        domain: [0.15, 0.95],
+                        showgrid: true,
+                        gridcolor: 'rgba(0,0,0,0.1)'
+                    },
+                    
+                    yaxis: {
+                        title: { text: 'Voltage [V]', font: { color: this.colors[0] }},
+                        side: 'left',
+                        position: 0.0,
+                        showgrid: true,
+                        gridcolor: 'rgba(31, 119, 180, 0.2)',
+                        tickfont: { color: this.colors[0] }
+                    },
+                    
+                    yaxis2: {
+                        title: { text: 'Current [A]', font: { color: this.colors[2] }},
+                        side: 'left',
+                        position: 0.08,
+                        overlaying: 'y',
+                        anchor: 'free',
+                        showgrid: true,
+                        gridcolor: 'rgba(44, 160, 44, 0.2)',
+                        tickfont: { color: this.colors[2] }
+                    },
+                    
+                    yaxis3: {
+                        title: { text: 'Pressure [Bar]', font: { color: this.colors[6] }},
+                        side: 'left',
+                        position: 0.16,
+                        overlaying: 'y',
+                        anchor: 'free',
+                        showgrid: true,
+                        gridcolor: 'rgba(227, 119, 194, 0.2)',
+                        tickfont: { color: this.colors[6] }
+                    },
+                    
+                    legend: { 
+                        x: 1.02, 
+                        y: 1,
+                        bgcolor: 'rgba(255,255,255,0.95)',
+                        bordercolor: 'rgba(0,0,0,0.3)',
+                        borderwidth: 1
+                    },
+                    
+                    height: 600,
+                    margin: { l: 120, r: 50, t: 60, b: 60 },
+                    plot_bgcolor: 'rgba(248,249,250,0.3)',
+                    autosize: true
+                };
+            }
+
+            getYAxisForUnit(unit) {
+                switch (unit) {
+                    case 'V': return 'y';
+                    case 'A': return 'y2';
+                    case 'Bar': return 'y3';
+                    default: return 'y';
+                }
+            }
+
+            async handleZoom(eventData) {
+                if (!eventData['xaxis.range[0]'] && !eventData['xaxis.range[1]']) return;
+                
+                const startTime = eventData['xaxis.range[0]'] || 0;
+                const endTime = eventData['xaxis.range[1]'] || this.metadata.duration;
+                
+                console.log(`Resampling for zoom: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s`);
+                
+                try {
+                    const traces = await this.buildTraces(startTime, endTime, 3000);
+                    await Plotly.react('plot', traces, this.currentPlot.layout);
+                } catch (error) {
+                    console.error('Zoom error:', error);
+                }
+            }
+
+            updateVisibility() {
+                if (!this.currentPlot) return;
+
+                const visibilityUpdate = {};
+                this.metadata.channels.forEach((channel, index) => {
+                    const checkbox = document.getElementById(`channel${index}`);
+                    visibilityUpdate[`visible[${index}]`] = checkbox.checked;
+                });
+
+                Plotly.restyle('plot', visibilityUpdate);
+            }
+
+            showError(message) {
+                document.getElementById('loading').style.display = 'none';
+                const container = document.querySelector('.container');
+                container.insertAdjacentHTML('afterbegin', `
+                    <div class="error">Error: ${message}</div>
+                `);
+            }
+        }
+
+        // Global functions for button clicks
+        function toggleAllChannels() {
+            if (!plotter.metadata) return;
+
+            const checkboxes = plotter.metadata.channels.map((_, index) => 
+                document.getElementById(`channel${index}`)
+            );
+            
+            const allChecked = checkboxes.every(cb => cb.checked);
+            checkboxes.forEach(cb => cb.checked = !allChecked);
+            
+            plotter.updateVisibility();
+        }
+
+        function resetZoom() {
+            if (!plotter.currentPlot || !plotter.metadata) return;
+            
+            const update = { 'xaxis.range': [0, plotter.metadata.duration] };
+            Plotly.relayout('plot', update);
+        }
+
+        function resetYAxes() {
+            if (!plotter.currentPlot) return;
+            
+            const update = {
+                'yaxis.range': null,
+                'yaxis2.range': null,
+                'yaxis3.range': null
+            };
+            
+            Plotly.relayout('plot', update);
+        }
+
+        // Initialize when page loads
+        let plotter;
+        document.addEventListener('DOMContentLoaded', () => {
+            plotter = new SimplePlotter();
+        });
+    </script>
 </body>
 </html>

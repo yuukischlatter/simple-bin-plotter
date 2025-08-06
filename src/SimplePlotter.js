@@ -1,43 +1,28 @@
-// SimpleServer.js - Minimal server for binary file plotting
+// src/SimplePlotter.js - Minimal binary file plotter with hardcoded file path
 const express = require('express');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 const BinaryReader = require('./BinaryReader');
 const DataProcessor = require('./DataProcessor');
 
-class SimpleServer {
+class SimplePlotter {
     constructor() {
         this.app = express();
         this.server = null;
-        this.currentBinaryData = null;
-        this.currentProcessor = null;
+        
+        // HARDCODED FILE PATH - Change this to your .bin file location
+        this.BINARY_FILE_PATH = path.join(__dirname, '..', 'data', 'J25-07-30(3).bin');
+        
+        this.binaryData = null;
+        this.processor = null;
         
         this.setupMiddleware();
         this.setupRoutes();
     }
 
     setupMiddleware() {
-        // Parse JSON bodies
         this.app.use(express.json());
-        
-        // Serve static files
         this.app.use('/static', express.static(path.join(__dirname, '..', 'static')));
-        
-        // Setup multer for file uploads
-        this.upload = multer({
-            storage: multer.memoryStorage(),
-            fileFilter: (req, file, cb) => {
-                if (file.originalname.endsWith('.bin')) {
-                    cb(null, true);
-                } else {
-                    cb(new Error('Only .bin files are allowed'), false);
-                }
-            },
-            limits: {
-                fileSize: 100 * 1024 * 1024 // 100MB limit
-            }
-        });
     }
 
     setupRoutes() {
@@ -46,45 +31,41 @@ class SimpleServer {
             res.sendFile(path.join(__dirname, '..', 'static', 'index.html'));
         });
 
-        // Upload binary file
-        this.app.post('/api/upload', this.upload.single('binfile'), async (req, res) => {
+        // Auto-load the hardcoded binary file
+        this.app.get('/api/load', async (req, res) => {
             try {
-                if (!req.file) {
-                    return res.status(400).json({ error: 'No file uploaded' });
-                }
-
-                console.log(`Processing uploaded file: ${req.file.originalname}`);
+                console.log(`Loading hardcoded binary file: ${this.BINARY_FILE_PATH}`);
                 
-                // Write file to temp location
-                const tempPath = path.join(__dirname, '..', 'temp_' + Date.now() + '.bin');
-                await fs.writeFile(tempPath, req.file.buffer);
+                // Check if file exists
+                try {
+                    await fs.access(this.BINARY_FILE_PATH);
+                } catch (error) {
+                    throw new Error(`Binary file not found: ${this.BINARY_FILE_PATH}`);
+                }
                 
                 // Process the binary file
-                const binaryReader = new BinaryReader(tempPath);
+                const binaryReader = new BinaryReader(this.BINARY_FILE_PATH);
                 await binaryReader.readFile();
                 
-                this.currentBinaryData = binaryReader;
-                this.currentProcessor = new DataProcessor(
+                this.binaryData = binaryReader;
+                this.processor = new DataProcessor(
                     binaryReader.getRawData(),
                     binaryReader.getMetadata()
                 );
 
-                // Clean up temp file
-                await fs.unlink(tempPath);
-
                 // Return metadata
-                const metadata = this.currentProcessor.getMetadataSummary();
-                const ranges = this.currentProcessor.getDataRanges();
+                const metadata = this.processor.getMetadataSummary();
+                const ranges = this.processor.getDataRanges();
 
                 res.json({
                     success: true,
-                    filename: req.file.originalname,
+                    filename: path.basename(this.BINARY_FILE_PATH),
                     metadata: metadata,
                     ranges: ranges
                 });
 
             } catch (error) {
-                console.error('Error processing file:', error);
+                console.error('Error loading file:', error);
                 res.status(500).json({ error: error.message });
             }
         });
@@ -97,7 +78,7 @@ class SimpleServer {
                 const endTime = parseFloat(req.query.end || 200);
                 const maxPoints = parseInt(req.query.maxPoints || 2000);
 
-                if (!this.currentProcessor) {
+                if (!this.processor) {
                     return res.status(404).json({ error: 'No file loaded' });
                 }
 
@@ -105,7 +86,7 @@ class SimpleServer {
                     return res.status(400).json({ error: 'Invalid channel number' });
                 }
 
-                const data = this.currentProcessor.getResampledData(channel, startTime, endTime, maxPoints);
+                const data = this.processor.getResampledData(channel, startTime, endTime, maxPoints);
                 
                 res.json({
                     time: data.time,
@@ -125,26 +106,12 @@ class SimpleServer {
             }
         });
 
-        // Get current metadata
-        this.app.get('/api/metadata', (req, res) => {
-            if (!this.currentProcessor) {
-                return res.status(404).json({ error: 'No file loaded' });
-            }
-
-            const metadata = this.currentProcessor.getMetadataSummary();
-            const ranges = this.currentProcessor.getDataRanges();
-
-            res.json({
-                metadata: metadata,
-                ranges: ranges
-            });
-        });
-
         // Health check
         this.app.get('/api/health', (req, res) => {
             res.json({ 
                 status: 'ok', 
-                hasFile: !!this.currentProcessor,
+                hasFile: !!this.processor,
+                filePath: this.BINARY_FILE_PATH,
                 timestamp: new Date().toISOString()
             });
         });
@@ -159,7 +126,8 @@ class SimpleServer {
                     return;
                 }
 
-                console.log(`Simple Binary Plotter Server started at http://localhost:${port}`);
+                console.log(`Simplified Binary Plotter started at http://localhost:${port}`);
+                console.log(`Configured to load: ${this.BINARY_FILE_PATH}`);
                 resolve(port);
             });
         });
@@ -177,4 +145,4 @@ class SimpleServer {
     }
 }
 
-module.exports = SimpleServer;
+module.exports = SimplePlotter;
