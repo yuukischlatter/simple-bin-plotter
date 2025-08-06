@@ -6,6 +6,12 @@ class BinaryReader {
         this.filename = filename;
         this.metadata = {};
         this.rawData = {};
+        this.calculatedData = {};
+        
+        // Constants for calculations (from C# code)
+        this.TRAFO_STROM_MULTIPLIER = 35;
+        this.FORCE_COEFF_1 = 6.2832;
+        this.FORCE_COEFF_2 = 5.0108;
     }
 
     readCSharpString(buffer, offset) {
@@ -144,8 +150,8 @@ class BinaryReader {
                 header,
                 bufferSize,
                 startTimeBinary,
-                binaryUnixMs,           // *** NEW: Unix timestamp in milliseconds ***
-                readDateTime,           // *** NEW: JavaScript Date object ***
+                binaryUnixMs,
+                readDateTime,
                 maxAdcValue,
                 channelRanges,
                 channelScaling,
@@ -164,9 +170,16 @@ class BinaryReader {
             await this.readChannelData(buffer, offset, bufferSize, downsampling);
             const dataEndTime = process.hrtime.bigint();
             
+            // Compute calculated channels
+            console.log('Computing calculated channels...');
+            const calcStartTime = process.hrtime.bigint();
+            this.computeCalculatedChannels();
+            const calcEndTime = process.hrtime.bigint();
+            
             const totalEndTime = process.hrtime.bigint();
             
             console.log(`Data reading completed in: ${Number(dataEndTime - dataStartTime) / 1e9} seconds`);
+            console.log(`Calculated channels computed in: ${Number(calcEndTime - calcStartTime) / 1e9} seconds`);
             console.log(`Total file processing time: ${Number(totalEndTime - startTime) / 1e9} seconds`);
             
         } catch (error) {
@@ -235,6 +248,149 @@ class BinaryReader {
         }
     }
 
+    computeCalculatedChannels() {
+        // Define calculated channel metadata
+        const calcChannelDefs = {
+            0: { label: 'UL3L1*', unit: 'V', sourceChannels: [0, 1] },
+            1: { label: 'IL2GR1*', unit: 'V', sourceChannels: [2, 3] },
+            2: { label: 'IL2GR2*', unit: 'V', sourceChannels: [4, 5] },
+            3: { label: 'I_DC_GR1*', unit: 'A', sourceChannels: [2, 3] },
+            4: { label: 'I_DC_GR2*', unit: 'A', sourceChannels: [4, 5] },
+            5: { label: 'U_DC*', unit: 'V', sourceChannels: [0, 1] },
+            6: { label: 'F_Schlitten*', unit: 'kN', sourceChannels: [6, 7] }
+        };
+
+        // Compute each calculated channel
+        for (const [calcIndex, def] of Object.entries(calcChannelDefs)) {
+            try {
+                const result = this.computeSingleCalculatedChannel(parseInt(calcIndex), def);
+                if (result) {
+                    this.calculatedData[`calc_${calcIndex}`] = result;
+                }
+            } catch (error) {
+                console.error(`Error computing calculated channel ${calcIndex}:`, error);
+            }
+        }
+        
+        console.log(`Computed ${Object.keys(this.calculatedData).length} calculated channels`);
+    }
+
+    computeSingleCalculatedChannel(calcIndex, def) {
+        const sourceChannels = def.sourceChannels;
+        
+        // Validate source channels exist
+        for (const srcCh of sourceChannels) {
+            if (!this.rawData[`channel_${srcCh}`]) {
+                console.warn(`Source channel ${srcCh} not found for calculated channel ${calcIndex}`);
+                return null;
+            }
+        }
+
+        // Get the primary source channel (first one) for time reference
+        const primaryChannel = sourceChannels[0];
+        const primaryData = this.rawData[`channel_${primaryChannel}`];
+        const numPoints = primaryData.points;
+        
+        // Create arrays for calculated channel
+        const timeArray = new Float32Array(primaryData.time);
+        const valuesArray = new Float32Array(numPoints);
+        
+        // Perform calculations based on channel index
+        switch (calcIndex) {
+            case 0: // UL3L1* = -channel[0] - channel[1]
+                this.calculateDifferential(valuesArray, 0, 1, numPoints, -1, -1);
+                break;
+                
+            case 1: // IL2GR1* = -channel[2] - channel[3]
+                this.calculateDifferential(valuesArray, 2, 3, numPoints, -1, -1);
+                break;
+                
+            case 2: // IL2GR2* = -channel[4] - channel[5]
+                this.calculateDifferential(valuesArray, 4, 5, numPoints, -1, -1);
+                break;
+                
+            case 3: // I_DC_GR1* = TRAFO_MULTIPLIER * (|ch[2]| + |ch[3]| + |IL2GR1*|)
+                this.calculateDCCurrent(valuesArray, 2, 3, 1, numPoints);
+                break;
+                
+            case 4: // I_DC_GR2* = TRAFO_MULTIPLIER * (|ch[4]| + |ch[5]| + |IL2GR2*|)
+                this.calculateDCCurrent(valuesArray, 4, 5, 2, numPoints);
+                break;
+                
+            case 5: // U_DC* = (|ch[0]| + |ch[1]| + |UL3L1*|) / TRAFO_MULTIPLIER
+                this.calculateDCVoltage(valuesArray, 0, 1, 0, numPoints);
+                break;
+                
+            case 6: // F_Schlitten* = ch[6] * 6.2832 - ch[7] * 5.0108
+                this.calculateForce(valuesArray, 6, 7, numPoints);
+                break;
+                
+            default:
+                console.warn(`Unknown calculated channel index: ${calcIndex}`);
+                return null;
+        }
+        
+        return {
+            time: timeArray,
+            values: valuesArray,
+            label: def.label,
+            unit: def.unit,
+            sourceChannels: sourceChannels,
+            points: numPoints,
+            downsampling: primaryData.downsampling
+        };
+    }
+
+    calculateDifferential(output, ch1, ch2, numPoints, coeff1, coeff2) {
+        const data1 = this.rawData[`channel_${ch1}`].values;
+        const data2 = this.rawData[`channel_${ch2}`].values;
+        
+        for (let i = 0; i < numPoints; i++) {
+            output[i] = coeff1 * data1[i] + coeff2 * data2[i];
+        }
+    }
+
+    calculateDCCurrent(output, ch1, ch2, diffChannelIndex, numPoints) {
+        const data1 = this.rawData[`channel_${ch1}`].values;
+        const data2 = this.rawData[`channel_${ch2}`].values;
+        const diffData = this.calculatedData[`calc_${diffChannelIndex}`]?.values;
+        
+        if (!diffData) {
+            console.warn(`Differential channel ${diffChannelIndex} not computed yet`);
+            return;
+        }
+        
+        for (let i = 0; i < numPoints; i++) {
+            const sum = Math.abs(data1[i]) + Math.abs(data2[i]) + Math.abs(diffData[i]);
+            output[i] = this.TRAFO_STROM_MULTIPLIER * sum;
+        }
+    }
+
+    calculateDCVoltage(output, ch1, ch2, diffChannelIndex, numPoints) {
+        const data1 = this.rawData[`channel_${ch1}`].values;
+        const data2 = this.rawData[`channel_${ch2}`].values;
+        const diffData = this.calculatedData[`calc_${diffChannelIndex}`]?.values;
+        
+        if (!diffData) {
+            console.warn(`Differential channel ${diffChannelIndex} not computed yet`);
+            return;
+        }
+        
+        for (let i = 0; i < numPoints; i++) {
+            const sum = Math.abs(data1[i]) + Math.abs(data2[i]) + Math.abs(diffData[i]);
+            output[i] = sum / this.TRAFO_STROM_MULTIPLIER;
+        }
+    }
+
+    calculateForce(output, ch1, ch2, numPoints) {
+        const data1 = this.rawData[`channel_${ch1}`].values;
+        const data2 = this.rawData[`channel_${ch2}`].values;
+        
+        for (let i = 0; i < numPoints; i++) {
+            output[i] = data1[i] * this.FORCE_COEFF_1 - data2[i] * this.FORCE_COEFF_2;
+        }
+    }
+
     getMetadata() {
         return this.metadata;
     }
@@ -243,8 +399,40 @@ class BinaryReader {
         return this.rawData;
     }
 
+    getCalculatedData() {
+        return this.calculatedData;
+    }
+
     getChannelData(channel) {
         return this.rawData[`channel_${channel}`];
+    }
+
+    getCalculatedChannelData(channel) {
+        return this.calculatedData[`calc_${channel}`];
+    }
+
+    // Get all available channels (raw + calculated)
+    getAllChannels() {
+        const allChannels = {
+            raw: {},
+            calculated: {}
+        };
+
+        // Add raw channels
+        for (let i = 0; i < 8; i++) {
+            if (this.rawData[`channel_${i}`]) {
+                allChannels.raw[i] = this.rawData[`channel_${i}`];
+            }
+        }
+
+        // Add calculated channels
+        for (let i = 0; i < 7; i++) {
+            if (this.calculatedData[`calc_${i}`]) {
+                allChannels.calculated[i] = this.calculatedData[`calc_${i}`];
+            }
+        }
+
+        return allChannels;
     }
 }
 

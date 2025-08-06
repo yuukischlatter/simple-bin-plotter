@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Binary Plotter</title>
+    <title>Binary Data Plotter - Engineering Values</title>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
         * {
@@ -31,8 +31,14 @@
             font-weight: 300;
         }
 
+        .header .subtitle {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
         }
@@ -92,18 +98,50 @@
             color: #2c3e50;
         }
 
+        .channel-sections {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+
+        .channel-section h4 {
+            margin-bottom: 10px;
+            color: #34495e;
+            font-size: 16px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+
+        .channel-section.calculated h4 {
+            border-bottom-color: #e74c3c;
+        }
+
         .channel-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            margin-bottom: 20px;
+            grid-template-columns: 1fr;
+            gap: 8px;
         }
 
         .channel-control {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 5px;
+            padding: 8px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .channel-control:hover {
+            background-color: #f8f9fa;
+        }
+
+        .channel-control.calculated {
+            background-color: #fff5f5;
+        }
+
+        .channel-control.calculated:hover {
+            background-color: #ffebee;
         }
 
         .channel-control input {
@@ -113,21 +151,32 @@
         .channel-control label {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             font-size: 14px;
             cursor: pointer;
+            flex: 1;
         }
 
         .color-dot {
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.2);
+        }
+
+        .channel-info {
+            font-size: 11px;
+            color: #666;
+            margin-left: auto;
         }
 
         .button-group {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            border-top: 1px solid #eee;
+            padding-top: 15px;
         }
 
         .btn {
@@ -151,6 +200,14 @@
 
         .btn.secondary:hover {
             background: #7f8c8d;
+        }
+
+        .btn.danger {
+            background: #e74c3c;
+        }
+
+        .btn.danger:hover {
+            background: #c0392b;
         }
 
         .plot-container {
@@ -193,11 +250,26 @@
             border-radius: 8px;
             margin-bottom: 20px;
         }
+
+        .stats-panel {
+            background: #f8f9fa;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #666;
+            display: none;
+        }
+
+        .stats-panel.show {
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Simple Binary Data Plotter</h1>
+        <h1>Binary Data Plotter - Engineering Values</h1>
+        <div class="subtitle">Welding Process Analysis with Calculated Channels</div>
     </div>
 
     <div class="container">
@@ -213,7 +285,7 @@
                 </div>
                 <div class="info-item">
                     <div class="info-label">Channels</div>
-                    <div class="info-value" id="channels">-</div>
+                    <div class="info-value" id="calc-channels">-</div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">Total Points</div>
@@ -224,37 +296,62 @@
 
         <div id="controls" class="controls">
             <h3>Channel Controls</h3>
-            <div id="channel-grid" class="channel-grid"></div>
+            <div class="channel-sections">
+                <div class="channel-section calculated">
+                    <h4>📊 Engineering Values</h4>
+                    <div id="calc-channel-grid" class="channel-grid"></div>
+                </div>
+            </div>
             <div class="button-group">
                 <button class="btn" onclick="toggleAllChannels()">Toggle All</button>
                 <button class="btn secondary" onclick="resetZoom()">Reset Zoom</button>
                 <button class="btn secondary" onclick="resetYAxes()">Reset Y-Axes</button>
+                <button class="btn danger" onclick="showDefaultChannels()">Show Defaults Only</button>
+            </div>
+            <div id="stats-panel" class="stats-panel">
+                <strong>Channel Statistics:</strong>
+                <div id="stats-content"></div>
             </div>
         </div>
 
         <div class="plot-container">
             <div id="loading" class="loading">
                 <div class="loading-spinner"></div>
-                <div>Loading binary data...</div>
+                <div>Loading binary data and computing engineering values...</div>
             </div>
             <div id="plot"></div>
         </div>
     </div>
 
     <script>
-        class SimplePlotter {
+        class EngineeringPlotter {
             constructor() {
                 this.metadata = null;
                 this.ranges = null;
+                this.availableChannels = null;
+                this.channelsByUnit = null;
+                this.defaultChannels = null;
                 this.currentPlot = null;
-                this.colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
+                this.visibleChannels = new Set();
+                
+                // Enhanced color palette for engineering values
+                this.calculatedColors = {
+                    'calc_5': '#e74c3c', // U_DC* - Red for voltage
+                    'calc_3': '#3498db', // I_DC_GR1* - Blue for current
+                    'calc_4': '#9b59b6', // I_DC_GR2* - Purple for current
+                    'calc_6': '#f39c12', // F_Schlitten* - Orange for force
+                    'calc_0': '#1abc9c', // UL3L1* - Teal
+                    'calc_1': '#2ecc71', // IL2GR1* - Green
+                    'calc_2': '#95a5a6'  // IL2GR2* - Gray
+                };
+                
+                this.rawColors = ['#bdc3c7', '#ecf0f1', '#95a5a6', '#7f8c8d', '#6c7b7b', '#566d6d', '#475a5a', '#34495e'];
                 
                 this.init();
             }
 
             async init() {
                 try {
-                    // Auto-load the binary file on startup
                     await this.loadFile();
                 } catch (error) {
                     this.showError(error.message);
@@ -262,7 +359,7 @@
             }
 
             async loadFile() {
-                console.log('Loading binary file...');
+                console.log('Loading binary file and computing engineering values...');
                 
                 try {
                     const response = await fetch('/api/load');
@@ -274,6 +371,12 @@
                     const result = await response.json();
                     this.metadata = result.metadata;
                     this.ranges = result.ranges;
+                    this.availableChannels = result.availableChannels;
+                    this.channelsByUnit = result.channelsByUnit;
+                    this.defaultChannels = result.defaultChannels;
+
+                    console.log('Available channels:', this.availableChannels);
+                    console.log('Default channels:', this.defaultChannels);
 
                     this.updateInfoBar(result);
                     this.createChannelControls();
@@ -288,24 +391,41 @@
             updateInfoBar(result) {
                 document.getElementById('filename').textContent = result.filename;
                 document.getElementById('duration').textContent = result.metadata.duration.toFixed(1) + 's';
-                document.getElementById('channels').textContent = result.metadata.channels.length;
+                document.getElementById('calc-channels').textContent = result.availableChannels.calculated.length;
                 document.getElementById('total-points').textContent = result.metadata.totalPoints.toLocaleString();
                 
                 document.getElementById('info-bar').classList.add('show');
             }
 
             createChannelControls() {
-                const grid = document.getElementById('channel-grid');
+                const calcGrid = document.getElementById('calc-channel-grid');
                 
-                grid.innerHTML = this.metadata.channels.map((channel, index) => `
-                    <div class="channel-control">
-                        <input type="checkbox" id="channel${index}" checked onchange="plotter.updateVisibility()">
-                        <label for="channel${index}">
-                            <div class="color-dot" style="background: ${this.colors[index]}"></div>
-                            ${channel.label} [${channel.unit}]
-                        </label>
-                    </div>
-                `).join('');
+                // Filter to show only the key engineering channels
+                const keyChannels = this.availableChannels.calculated.filter(channel => 
+                    ['calc_3', 'calc_4', 'calc_5', 'calc_6'].includes(channel.id)
+                );
+                
+                // Create calculated channel controls - only key channels
+                calcGrid.innerHTML = keyChannels.map((channel, index) => {
+                    const isDefault = this.defaultChannels.includes(channel.id);
+                    const color = this.calculatedColors[channel.id] || '#e74c3c';
+                    
+                    return `
+                        <div class="channel-control calculated">
+                            <input type="checkbox" id="${channel.id}" ${isDefault ? 'checked' : ''} onchange="plotter.updateVisibility()">
+                            <label for="${channel.id}">
+                                <div class="color-dot" style="background: ${color}"></div>
+                                <strong>${channel.label}</strong>
+                                <div class="channel-info">[${channel.unit}] • ${channel.points.toLocaleString()} pts</div>
+                            </label>
+                        </div>
+                    `;
+                }).join('');
+
+                // Initialize visible channels set with defaults
+                this.defaultChannels.forEach(channelId => {
+                    this.visibleChannels.add(channelId);
+                });
 
                 document.getElementById('controls').classList.add('show');
             }
@@ -315,13 +435,16 @@
                 document.getElementById('plot').style.display = 'none';
 
                 try {
-                    const traces = await this.buildTraces(0, this.metadata.duration, 2000);
+                    // Load only visible channels initially
+                    const visibleChannelIds = Array.from(this.visibleChannels);
+                    const traces = await this.buildTraces(visibleChannelIds, 0, this.metadata.duration, 2000);
                     const layout = this.createLayout();
                     
                     const config = {
                         responsive: true,
                         displayModeBar: true,
-                        scrollZoom: false
+                        scrollZoom: false,
+                        displaylogo: false
                     };
 
                     this.currentPlot = await Plotly.newPlot('plot', traces, layout, config);
@@ -340,87 +463,122 @@
                 }
             }
 
-            async buildTraces(startTime, endTime, maxPoints) {
+            async buildTraces(channelIds, startTime, endTime, maxPoints) {
                 const traces = [];
 
-                for (let channel = 0; channel < 8; channel++) {
+                for (const channelId of channelIds) {
                     try {
                         const response = await fetch(
-                            `/api/data/${channel}?start=${startTime}&end=${endTime}&maxPoints=${maxPoints}`
+                            `/api/data/${channelId}?start=${startTime}&end=${endTime}&maxPoints=${maxPoints}`
                         );
                         
                         if (!response.ok) continue;
                         
                         const data = await response.json();
-                        const channelInfo = this.metadata.channels[channel];
+                        const color = this.getChannelColor(channelId);
+                        const yAxis = this.getYAxisForUnit(data.meta.unit);
                         
                         traces.push({
                             x: data.time,
                             y: data.values,
                             type: 'scatter',
                             mode: 'lines',
-                            name: `${channelInfo.label} [${channelInfo.unit}]`,
-                            line: { color: this.colors[channel], width: 1.5 },
-                            yaxis: this.getYAxisForUnit(channelInfo.unit),
-                            visible: true
+                            name: `${data.meta.label} [${data.meta.unit}]`,
+                            line: { 
+                                color: color, 
+                                width: data.meta.type === 'calculated' ? 2 : 1 
+                            },
+                            yaxis: yAxis,
+                            visible: true,
+                            opacity: data.meta.type === 'calculated' ? 1.0 : 0.7
                         });
 
                     } catch (error) {
-                        console.warn(`Failed to load channel ${channel}:`, error);
+                        console.warn(`Failed to load channel ${channelId}:`, error);
                     }
                 }
 
                 return traces;
             }
 
+            getChannelColor(channelId) {
+                if (channelId.startsWith('calc_')) {
+                    return this.calculatedColors[channelId] || '#e74c3c';
+                } else {
+                    const index = parseInt(channelId.replace('channel_', ''));
+                    return this.rawColors[index % this.rawColors.length];
+                }
+            }
+
+            getYAxisForUnit(unit) {
+                switch (unit) {
+                    case 'V': return 'y';     // Voltage - Left axis
+                    case 'A': return 'y2';    // Current - Right axis  
+                    case 'kN': return 'y3';   // Force - Right axis 2
+                    case 'Bar': return 'y4';  // Pressure - Right axis 3
+                    default: return 'y';      // Default to left
+                }
+            }
+
             createLayout() {
                 return {
                     title: {
-                        text: 'Multi-Channel Binary Data',
-                        font: { size: 16, color: '#2c3e50' }
+                        text: 'Welding Process Analysis - Engineering Values',
+                        font: { size: 18, color: '#2c3e50' }
                     },
                     
                     xaxis: { 
                         title: 'Time [s]',
                         range: [0, this.metadata.duration],
-                        domain: [0.15, 0.95],
+                        domain: [0.1, 0.85],
                         showgrid: true,
                         gridcolor: 'rgba(0,0,0,0.1)'
                     },
                     
+                    // Voltage axis (left)
                     yaxis: {
-                        title: { text: 'Voltage [V]', font: { color: this.colors[0] }},
+                        title: { text: 'Voltage [V]', font: { color: '#e74c3c' }},
                         side: 'left',
                         position: 0.0,
                         showgrid: true,
-                        gridcolor: 'rgba(31, 119, 180, 0.2)',
-                        tickfont: { color: this.colors[0] }
+                        gridcolor: 'rgba(231, 76, 60, 0.2)',
+                        tickfont: { color: '#e74c3c' }
                     },
                     
+                    // Current axis (right)
                     yaxis2: {
-                        title: { text: 'Current [A]', font: { color: this.colors[2] }},
-                        side: 'left',
-                        position: 0.08,
+                        title: { text: 'Current [A]', font: { color: '#3498db' }},
+                        side: 'right',
+                        position: 1.0,
                         overlaying: 'y',
-                        anchor: 'free',
-                        showgrid: true,
-                        gridcolor: 'rgba(44, 160, 44, 0.2)',
-                        tickfont: { color: this.colors[2] }
+                        showgrid: false,
+                        tickfont: { color: '#3498db' }
                     },
                     
+                    // Force axis (right)
                     yaxis3: {
-                        title: { text: 'Pressure [Bar]', font: { color: this.colors[6] }},
-                        side: 'left',
-                        position: 0.16,
+                        title: { text: 'Force [kN]', font: { color: '#f39c12' }},
+                        side: 'right',
+                        position: 0.95,
                         overlaying: 'y',
                         anchor: 'free',
-                        showgrid: true,
-                        gridcolor: 'rgba(227, 119, 194, 0.2)',
-                        tickfont: { color: this.colors[6] }
+                        showgrid: false,
+                        tickfont: { color: '#f39c12' }
+                    },
+                    
+                    // Pressure axis (right) 
+                    yaxis4: {
+                        title: { text: 'Pressure [Bar]', font: { color: '#9b59b6' }},
+                        side: 'right',
+                        position: 0.90,
+                        overlaying: 'y',
+                        anchor: 'free', 
+                        showgrid: false,
+                        tickfont: { color: '#9b59b6' }
                     },
                     
                     legend: { 
-                        x: 1.02, 
+                        x: 1.1, 
                         y: 1,
                         bgcolor: 'rgba(255,255,255,0.95)',
                         bordercolor: 'rgba(0,0,0,0.3)',
@@ -428,19 +586,10 @@
                     },
                     
                     height: 600,
-                    margin: { l: 120, r: 50, t: 60, b: 60 },
+                    margin: { l: 80, r: 150, t: 80, b: 60 },
                     plot_bgcolor: 'rgba(248,249,250,0.3)',
                     autosize: true
                 };
-            }
-
-            getYAxisForUnit(unit) {
-                switch (unit) {
-                    case 'V': return 'y';
-                    case 'A': return 'y2';
-                    case 'Bar': return 'y3';
-                    default: return 'y';
-                }
             }
 
             async handleZoom(eventData) {
@@ -452,23 +601,36 @@
                 console.log(`Resampling for zoom: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s`);
                 
                 try {
-                    const traces = await this.buildTraces(startTime, endTime, 3000);
+                    const visibleChannelIds = Array.from(this.visibleChannels);
+                    const traces = await this.buildTraces(visibleChannelIds, startTime, endTime, 3000);
                     await Plotly.react('plot', traces, this.currentPlot.layout);
                 } catch (error) {
                     console.error('Zoom error:', error);
                 }
             }
 
-            updateVisibility() {
+            async updateVisibility() {
                 if (!this.currentPlot) return;
 
-                const visibilityUpdate = {};
-                this.metadata.channels.forEach((channel, index) => {
-                    const checkbox = document.getElementById(`channel${index}`);
-                    visibilityUpdate[`visible[${index}]`] = checkbox.checked;
+                // Update visible channels set
+                this.visibleChannels.clear();
+                
+                // Check all checkboxes
+                const allCheckboxes = document.querySelectorAll('#controls input[type="checkbox"]');
+                allCheckboxes.forEach(checkbox => {
+                    if (checkbox.checked) {
+                        this.visibleChannels.add(checkbox.id);
+                    }
                 });
 
-                Plotly.restyle('plot', visibilityUpdate);
+                // Rebuild plot with visible channels
+                try {
+                    const visibleChannelIds = Array.from(this.visibleChannels);
+                    const traces = await this.buildTraces(visibleChannelIds, 0, this.metadata.duration, 2000);
+                    await Plotly.react('plot', traces, this.currentPlot.layout);
+                } catch (error) {
+                    console.error('Visibility update error:', error);
+                }
             }
 
             showError(message) {
@@ -482,11 +644,11 @@
 
         // Global functions for button clicks
         function toggleAllChannels() {
-            if (!plotter.metadata) return;
+            if (!plotter.availableChannels) return;
 
-            const checkboxes = plotter.metadata.channels.map((_, index) => 
-                document.getElementById(`channel${index}`)
-            );
+            // Only toggle the displayed key channels
+            const keyChannelIds = ['calc_3', 'calc_4', 'calc_5', 'calc_6'];
+            const checkboxes = keyChannelIds.map(id => document.getElementById(id)).filter(cb => cb);
             
             const allChecked = checkboxes.every(cb => cb.checked);
             checkboxes.forEach(cb => cb.checked = !allChecked);
@@ -507,16 +669,32 @@
             const update = {
                 'yaxis.range': null,
                 'yaxis2.range': null,
-                'yaxis3.range': null
+                'yaxis3.range': null,
+                'yaxis4.range': null
             };
             
             Plotly.relayout('plot', update);
         }
 
+        function showDefaultChannels() {
+            if (!plotter.defaultChannels) return;
+            
+            // Check only the key engineering channels that are displayed
+            const keyChannelIds = ['calc_3', 'calc_4', 'calc_5', 'calc_6'];
+            keyChannelIds.forEach(channelId => {
+                const checkbox = document.getElementById(channelId);
+                if (checkbox) {
+                    checkbox.checked = plotter.defaultChannels.includes(channelId);
+                }
+            });
+            
+            plotter.updateVisibility();
+        }
+
         // Initialize when page loads
         let plotter;
         document.addEventListener('DOMContentLoaded', () => {
-            plotter = new SimplePlotter();
+            plotter = new EngineeringPlotter();
         });
     </script>
 </body>
