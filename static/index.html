@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Binary File Plotter</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>Simple Binary File Plotter</h1>
+        <p class="subtitle">Upload and visualize 8-channel binary measurement data</p>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        
+        <!-- Upload Section -->
+        <div class="upload-section">
+            <div class="upload-area">
+                <div class="upload-icon">📁</div>
+                <h3>Upload Binary File</h3>
+                <p>Drag and drop a .bin file here, or click to browse</p>
+                
+                <input type="file" id="fileInput" accept=".bin" style="display: none;">
+                <button id="uploadBtn" disabled>Choose Binary File</button>
+                
+                <div class="file-types">
+                    <small>Supported: .bin files with 8-channel measurement data</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="loading-section" style="display: none;">
+            <div class="loading-spinner"></div>
+            <p>Processing binary file...</p>
+        </div>
+
+        <!-- File Info -->
+        <div id="fileInfo" class="file-info-section"></div>
+
+        <!-- Channel Controls -->
+        <div id="channelControls" class="channel-controls-section" style="display: none;"></div>
+
+        <!-- Plot Section -->
+        <div id="plotContainer" class="plot-section" style="display: none;">
+            <div class="plot-header">
+                <h3>Multi-Channel Data Plot</h3>
+                <p>Zoom and pan to explore your data. Use the channel controls above to show/hide traces.</p>
+            </div>
+            
+            <div class="plot-container">
+                <div id="plot"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
